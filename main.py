@@ -1,7 +1,6 @@
 import os
 import requests
 import psycopg2
-from psycopg2.extras import execute_values
 from dotenv import load_dotenv
 
 # 1. Load Environment Variables
@@ -17,13 +16,15 @@ DB_CONFIG = {
 }
 
 def get_db_connection():
-    """Returns a connection to the PostgreSQL database."""
     return psycopg2.connect(**DB_CONFIG)
 
 def setup_db():
-    """Creates the UCL table if it doesn't exist."""
-    commands = (
-        """
+    """Creates both tables required for the dashboard."""
+    conn = get_db_connection()
+    cur = conn.cursor()
+    
+    # Standings Table
+    cur.execute("""
         CREATE TABLE IF NOT EXISTS ucl_standings (
             team_id INTEGER PRIMARY KEY,
             team_name TEXT NOT NULL,
@@ -33,89 +34,100 @@ def setup_db():
             goals_for INTEGER,
             goals_against INTEGER,
             last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-        """,
-    )
-    conn = None
-    try:
-        conn = get_db_connection()
-        cur = conn.cursor()
-        for command in commands:
-            cur.execute(command)
-        cur.close()
-        conn.commit()
-        print("Database table ready.")
-    except (Exception, psycopg2.DatabaseError) as error:
-        print(f"DB Setup Error: {error}")
-    finally:
-        if conn is not None:
-            conn.close()
+        );
+    """)
 
-def fetch_ucl_data():
-    """Fetches the latest UCL League Phase standings from the API."""
+    # Matches Table
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS ucl_matches (
+            match_id INTEGER PRIMARY KEY,
+            utc_date TIMESTAMP,
+            status TEXT,
+            matchday INTEGER,
+            home_team_id INTEGER,
+            away_team_id INTEGER,
+            home_score INTEGER,
+            away_score INTEGER,
+            winner TEXT,
+            last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+    """)
+    
+    conn.commit()
+    cur.close()
+    conn.close()
+    print("Database tables verified/created.")
+
+# --- STANDINGS LOGIC ---
+def fetch_ucl_standings():
     url = "https://api.football-data.org/v4/competitions/CL/standings"
     headers = {'X-Auth-Token': API_TOKEN}
-    
-    try:
-        response = requests.get(url, headers=headers)
-        response.raise_for_status()
-        return response.json()
-    except requests.exceptions.RequestException as e:
-        print(f"API Fetch Error: {e}")
-        return None
+    response = requests.get(url, headers=headers)
+    response.raise_for_status()
+    return response.json()
 
-def sync_to_postgres(data):
-    """Parses API data and performs an UPSERT into PostgreSQL."""
-    if not data or 'standings' not in data:
-        print("No valid data to sync.")
-        return
-
-    # In the new UCL format, standings[0] contains the full league table
+def sync_standings(data):
+    if not data or 'standings' not in data: return
     standings_table = data['standings'][0]['table']
-    
-    conn = None
-    try:
-        conn = get_db_connection()
-        cur = conn.cursor()
+    conn = get_db_connection()
+    cur = conn.cursor()
+    for row in standings_table:
+        cur.execute("""
+            INSERT INTO ucl_standings (team_id, team_name, position, played, points, goals_for, goals_against)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (team_id) DO UPDATE SET
+                position = EXCLUDED.position, played = EXCLUDED.played, points = EXCLUDED.points,
+                last_updated = CURRENT_TIMESTAMP;
+        """, (row['team']['id'], row['team']['name'], row['position'], row['playedGames'], 
+              row['points'], row['goalsFor'], row['goalsAgainst']))
+    conn.commit()
+    cur.close()
+    conn.close()
+    print(f"Synced {len(standings_table)} teams to ucl_standings.")
 
-        for row in standings_table:
-            # UPSERT Logic: Insert if new, Update points/position if team_id exists
-            cur.execute("""
-                INSERT INTO ucl_standings (team_id, team_name, position, played, points, goals_for, goals_against)
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
-                ON CONFLICT (team_id) DO UPDATE SET
-                    position = EXCLUDED.position,
-                    played = EXCLUDED.played,
-                    points = EXCLUDED.points,
-                    goals_for = EXCLUDED.goals_for,
-                    goals_against = EXCLUDED.goals_against,
-                    last_updated = CURRENT_TIMESTAMP;
-            """, (
-                row['team']['id'],
-                row['team']['name'],
-                row['position'],
-                row['playedGames'],
-                row['points'],
-                row['goalsFor'],
-                row['goalsAgainst']
-            ))
+# --- MATCHES LOGIC ---
+def fetch_ucl_matches():
+    url = "https://api.football-data.org/v4/competitions/CL/matches"
+    headers = {'X-Auth-Token': API_TOKEN}
+    response = requests.get(url, headers=headers)
+    response.raise_for_status()
+    return response.json()
 
-        conn.commit()
-        cur.close()
-        print(f"Successfully synced {len(standings_table)} teams to Postgres.")
-    except (Exception, psycopg2.DatabaseError) as error:
-        print(f"Sync Error: {error}")
-    finally:
-        if conn is not None:
-            conn.close()
+def sync_matches(data):
+    if not data or 'matches' not in data: return
+    matches = data['matches']
+    conn = get_db_connection()
+    cur = conn.cursor()
+    for m in matches:
+        cur.execute("""
+            INSERT INTO ucl_matches (match_id, utc_date, status, matchday, home_team_id, away_team_id, home_score, away_score, winner)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (match_id) DO UPDATE SET
+                status = EXCLUDED.status, home_score = EXCLUDED.home_score, 
+                away_score = EXCLUDED.away_score, winner = EXCLUDED.winner,
+                last_updated = CURRENT_TIMESTAMP;
+        """, (m['id'], m['utcDate'], m['status'], m['matchday'], m['homeTeam']['id'], 
+              m['awayTeam']['id'], m['score']['fullTime']['home'], 
+              m['score']['fullTime']['away'], m['score']['winner']))
+    conn.commit()
+    cur.close()
+    conn.close()
+    print(f"Synced {len(matches)} matches to ucl_matches.")
 
+# --- EXECUTION BLOCK ---
 if __name__ == "__main__":
-    # Ensure database is ready
-    setup_db()
-    
-    # Run the pipeline
-    print("Fetching UCL data...")
-    raw_data = fetch_ucl_data()
-    
-    if raw_data:
-        sync_to_postgres(raw_data)
+    try:
+        setup_db()
+        
+        print("Starting Standings Sync...")
+        standings_data = fetch_ucl_standings()
+        sync_standings(standings_data)
+        
+        print("Starting Matches Sync...")
+        matches_data = fetch_ucl_matches()
+        sync_matches(matches_data)
+        
+        print("All data pipelines completed successfully!")
+        
+    except Exception as e:
+        print(f"Pipeline failed: {e}")
