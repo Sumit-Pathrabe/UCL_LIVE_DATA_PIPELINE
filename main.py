@@ -71,19 +71,34 @@ def sync_standings(data):
     standings_table = data['standings'][0]['table']
     conn = get_db_connection()
     cur = conn.cursor()
+    
     for row in standings_table:
         cur.execute("""
-            INSERT INTO ucl_standings (team_id, team_name, position, played, points, goals_for, goals_against)
-            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            INSERT INTO ucl_standings (team_id, team_name, position, played, points, goals_for, goals_against, logo_url)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (team_id) DO UPDATE SET
-                position = EXCLUDED.position, played = EXCLUDED.played, points = EXCLUDED.points,
+                position = EXCLUDED.position, 
+                played = EXCLUDED.played, 
+                points = EXCLUDED.points,
+                goals_for = EXCLUDED.goals_for,
+                goals_against = EXCLUDED.goals_against,
+                logo_url = EXCLUDED.logo_url,
                 last_updated = CURRENT_TIMESTAMP;
-        """, (row['team']['id'], row['team']['name'], row['position'], row['playedGames'], 
-              row['points'], row['goalsFor'], row['goalsAgainst']))
+        """, (
+            row['team']['id'], 
+            row['team']['name'], 
+            row['position'], 
+            row['playedGames'], 
+            row['points'], 
+            row['goalsFor'], 
+            row['goalsAgainst'],
+            row['team']['crest']  # <-- This is the API field for the logo
+        ))
+        
     conn.commit()
     cur.close()
     conn.close()
-    print(f"Synced {len(standings_table)} teams to ucl_standings.")
+    print(f"Synced {len(standings_table)} teams (with logos) to ucl_standings.")
 
 # --- MATCHES LOGIC ---
 def fetch_ucl_matches():
