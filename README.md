@@ -36,6 +36,7 @@ It demonstrates a complete data lifecycle: from raw JSON extraction to advanced 
 ## 📊 The Dashboard
 
 ![UCL Dashboard Preview](dashboard_preview.gif) 
+<img width="1432" height="817" alt="image" src="https://github.com/user-attachments/assets/b921d069-9cd0-44e1-b6d6-52d323a332ee" />
 
 
 ---
