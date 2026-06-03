@@ -61,4 +61,5 @@ It demonstrates a complete data lifecycle: from raw JSON extraction to advanced 
 ## 🔮 Roadmap & Future Scope
 * **Live Match Updates:** Automating the Python script via Windows Task Scheduler/Cron to fetch live match updates during game days.
 * **Predictive Modeling:** Integrating a Python-based Win-Probability model based on historical team form.
-* **🚧 *Stay Tuned: Major updates for the Knockout Rounds and later stages are coming soon!***
+* MAjor update 2026 champions  PSG
+* 
