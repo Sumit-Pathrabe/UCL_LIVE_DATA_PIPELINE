@@ -56,10 +56,12 @@ It demonstrates a complete data lifecycle: from raw JSON extraction to advanced 
 4. Run the ETL pipeline: `python main.py`
 5. Open `UCL_Analytics_Dashboard.pbix` in Power BI Desktop to view the live dashboard.
 
+
 ---
 
 ## 🔮 Roadmap & Future Scope
 * **Live Match Updates:** Automating the Python script via Windows Task Scheduler/Cron to fetch live match updates during game days.
 * **Predictive Modeling:** Integrating a Python-based Win-Probability model based on historical team form.
 * MAjor update 2026 champions  PSG
+* Updates scheduled for new season
 * 
